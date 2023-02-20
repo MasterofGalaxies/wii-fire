@@ -13,28 +13,29 @@
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480
 
-static void rgb_to_yuyv422_and_scale(void *dst, const void *src) {
+static void rgb_to_yuyv422_and_scale(void *dst, const void *src, int orig_width,
+                                     int orig_height, int new_width, int new_height) {
 	const unsigned char *srcp = src;
 	unsigned char *dstp = dst;
 
-	float x_scale = (float)WIDTH / (float)SCREEN_WIDTH;
-	float y_scale = (float)HEIGHT / (float)SCREEN_HEIGHT;
+	float x_scale = (float)orig_width / (float)new_width;
+	float y_scale = (float)orig_height / (float)new_height;
 
-	for (int y = 0; y < SCREEN_HEIGHT; y++) {
-		for (int x = 0; x < SCREEN_WIDTH; x += 2) {
+	for (int y = 0; y < new_height; y++) {
+		for (int x = 0; x < new_width; x += 2) {
 			int in_x1 = (int)(x * x_scale);
 			int in_y = (int)(y * y_scale);
 			int in_x2 = in_x1 + 1;
 
-			int out_idx = y * SCREEN_WIDTH * 2 + x * 2;
+			int out_idx = y * new_width * 2 + x * 2;
 
-			int r1 = srcp[(in_y * WIDTH + in_x1) * 4 + 1];
-			int g1 = srcp[(in_y * WIDTH + in_x1) * 4 + 2];
-			int b1 = srcp[(in_y * WIDTH + in_x1) * 4 + 3];
+			int r1 = srcp[(in_y * orig_width + in_x1) * 4 + 1];
+			int g1 = srcp[(in_y * orig_width + in_x1) * 4 + 2];
+			int b1 = srcp[(in_y * orig_width + in_x1) * 4 + 3];
 
-			int r2 = srcp[(in_y * WIDTH + in_x2) * 4 + 1];
-			int g2 = srcp[(in_y * WIDTH + in_x2) * 4 + 2];
-			int b2 = srcp[(in_y * WIDTH + in_x2) * 4 + 3];
+			int r2 = srcp[(in_y * orig_width + in_x2) * 4 + 1];
+			int g2 = srcp[(in_y * orig_width + in_x2) * 4 + 2];
+			int b2 = srcp[(in_y * orig_width + in_x2) * 4 + 3];
 
 			unsigned char y1 = (unsigned char)(0.257 * r1 + 0.504 * g1 + 0.098 * b1 + 16);
 			unsigned char u = (unsigned char)(-0.148 * r1 - 0.291 * g1 + 0.439 * b1 + 128);
@@ -161,7 +162,7 @@ int main(void) {
 		}
 
 		// Convert from RGB to YUYV422 while scaling from 80x50 to 640x480
-		rgb_to_yuyv422_and_scale(yuyv, framebuf);
+		rgb_to_yuyv422_and_scale(yuyv, framebuf, WIDTH, HEIGHT - 2, SCREEN_WIDTH, SCREEN_HEIGHT);
 
 		// Copy to the Wii's framebuffer
 		for (i = 0; i < SCREEN_HEIGHT; i++)
