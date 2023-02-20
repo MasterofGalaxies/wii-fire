@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<app version="1.0">
+	<name>Wii Fireplace</name>
+	<version>1.0</version>
+	<release_date>202302190000</release_date>
+	<coder>Galaxy Master</coder>
+	<short_description>Plays a fireplace animation</short_description>
+	<long_description>This application displays a fireplace animation. Press home on a connected Wii Remote or Start on a connected GameCube controller to exit.
+
+This application is a port of SDL2 firedemo from https://www.hanshq.net/fire.html</long_description>
+</app>
