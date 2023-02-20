@@ -1,14 +1,53 @@
-/* firedemo with SDL2, from http://www.hanshq.net/fire.html */
-
-#include <SDL.h>
 #include <stdbool.h>
-#include <stdio.h>
+#include <string.h>
+#include <ogc/system.h>
+#include <ogc/video.h>
+#include <ogc/video_types.h>
+#include <ogc/gx_struct.h>
+#include <ogc/pad.h>
+#include <wiiuse/wpad.h>
 
 #define WIDTH 80
 #define HEIGHT 50
-#define WIN_WIDTH 640
-#define WIN_HEIGHT 400
-#define FPS 30
+
+#define SCREEN_WIDTH 640
+#define SCREEN_HEIGHT 480
+
+static void rgb_to_yuyv422_and_scale(void *dst, const void *src) {
+	const unsigned char *srcp = src;
+	unsigned char *dstp = dst;
+
+	float x_scale = (float)WIDTH / (float)SCREEN_WIDTH;
+	float y_scale = (float)HEIGHT / (float)SCREEN_HEIGHT;
+
+	for (int y = 0; y < SCREEN_HEIGHT; y++) {
+		for (int x = 0; x < SCREEN_WIDTH; x += 2) {
+			int in_x1 = (int)(x * x_scale);
+			int in_y = (int)(y * y_scale);
+			int in_x2 = in_x1 + 1;
+
+			int out_idx = y * SCREEN_WIDTH * 2 + x * 2;
+
+			int r1 = srcp[(in_y * WIDTH + in_x1) * 4 + 1];
+			int g1 = srcp[(in_y * WIDTH + in_x1) * 4 + 2];
+			int b1 = srcp[(in_y * WIDTH + in_x1) * 4 + 3];
+
+			int r2 = srcp[(in_y * WIDTH + in_x2) * 4 + 1];
+			int g2 = srcp[(in_y * WIDTH + in_x2) * 4 + 2];
+			int b2 = srcp[(in_y * WIDTH + in_x2) * 4 + 3];
+
+			unsigned char y1 = (unsigned char)(0.257 * r1 + 0.504 * g1 + 0.098 * b1 + 16);
+			unsigned char u = (unsigned char)(-0.148 * r1 - 0.291 * g1 + 0.439 * b1 + 128);
+			unsigned char y2 = (unsigned char)(0.257 * r2 + 0.504 * g2 + 0.098 * b2 + 16);
+			unsigned char v = (unsigned char)(0.439 * r1 - 0.368 * g1 - 0.071 * b1 + 128);
+
+			dstp[out_idx] = y1;
+			dstp[out_idx + 1] = u;
+			dstp[out_idx + 2] = y2;
+			dstp[out_idx + 3] = v;
+		}
+	}
+}
 
 static const uint32_t palette[256] = {
 /* Jare's original FirePal. */
@@ -46,63 +85,39 @@ W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W
 static uint8_t fire[WIDTH * HEIGHT];
 static uint8_t prev_fire[WIDTH * HEIGHT];
 static uint32_t framebuf[WIDTH * HEIGHT];
+static uint8_t yuyv[SCREEN_WIDTH * SCREEN_HEIGHT * 2];
 
-int main()
-{
-	SDL_Window *window;
-	SDL_Renderer *renderer;
-	SDL_Texture *texture;
-	SDL_Event event;
+int main(void) {
 	int i;
 	uint32_t sum;
 	uint8_t avg;
-	bool full_screen = false;
-	bool keep_running = true;
 
-	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-		fprintf(stderr, "Failed SDL_Init: %s\n", SDL_GetError());
-		return 1;
-	}
+	VIDEO_Init();
 
-	window = SDL_CreateWindow("SDL2 firedemo (www.hanshq.net/fire.html)",
-			SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-			WIN_WIDTH, WIN_HEIGHT,
-			SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
-	if (window == NULL) {
-		fprintf(stderr, "Failed CreateWindow: %s\n", SDL_GetError());
-		return 1;
-	}
+	PAD_Init();
+	WPAD_Init();
 
-	renderer = SDL_CreateRenderer(window, -1, 0);
-	if (renderer == NULL) {
-		fprintf(stderr, "Failed CreateRenderer: %s\n", SDL_GetError());
-		return 1;
-	}
+	GXRModeObj *rmode = VIDEO_GetPreferredMode(NULL);
+	void *xfb = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
+	VIDEO_Configure(rmode);
+	VIDEO_SetNextFramebuffer(xfb);
+	VIDEO_SetBlack(false);
+	VIDEO_Flush();
+	VIDEO_WaitVSync();
 
-	texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-			SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
-	if (texture == NULL) {
-		fprintf(stderr, "Failed CreateTexture: %s\n", SDL_GetError());
-		return 1;
-	}
+	while (true) {
+		// Wait until the end of the frame
+		VIDEO_WaitVSync();
 
+		PAD_ScanPads();
+		for (unsigned char i = 0; i < 4; ++i)
+			if (PAD_ButtonsDown(i) & PAD_BUTTON_START)
+				return 0;
 
-	while (keep_running) {
-		while (SDL_PollEvent(&event)) {
-			if (event.type == SDL_QUIT) {
-				keep_running = false;
-			} else if (event.type == SDL_KEYDOWN) {
-				if (event.key.keysym.sym == SDLK_f) {
-					full_screen = !full_screen;
-					SDL_SetWindowFullscreen(window,
-						full_screen ?
-						SDL_WINDOW_FULLSCREEN_DESKTOP :
-						0);
-				} else if (event.key.keysym.sym == SDLK_q) {
-					keep_running = false;
-				}
-			}
-		}
+		WPAD_ScanPads();
+		for (unsigned char i = 0; i < 4; ++i)
+			if (WPAD_ButtonsDown(i) & WPAD_BUTTON_HOME)
+				return 0;
 
 		for (i = WIDTH + 1; i < (HEIGHT - 1) * WIDTH - 1; i++) {
 			/* Average the eight neighbours. */
@@ -145,21 +160,13 @@ int main()
 			framebuf[i] = palette[fire[i + WIDTH]];
 		}
 
-		/* Update the texture and render it. */
-		SDL_UpdateTexture(texture, NULL, framebuf,
-		                  WIDTH * sizeof(framebuf[0]));
-		SDL_RenderClear(renderer);
-		SDL_RenderCopy(renderer, texture, NULL, NULL);
-		SDL_RenderPresent(renderer);
+		// Convert from RGB to YUYV422 while scaling from 80x50 to 640x480
+		rgb_to_yuyv422_and_scale(yuyv, framebuf);
 
-		SDL_Delay(1000 / FPS);
+		// Copy to the Wii's framebuffer
+		for (i = 0; i < SCREEN_HEIGHT; i++)
+			memcpy(xfb + (i * rmode->fbWidth * 2), yuyv + (i * (SCREEN_WIDTH * 2)), SCREEN_WIDTH * 2);
 	}
-
-	SDL_DestroyTexture(texture);
-	SDL_DestroyRenderer(renderer);
-	SDL_DestroyWindow(window);
-
-	SDL_Quit();
 
 	return 0;
 }
